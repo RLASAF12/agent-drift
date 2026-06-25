@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentDrift — Reasoning Contradiction Detector</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --red-dim: rgba(248,81,73,0.12);
+  --yellow-dim: rgba(210,153,34,0.12);
+  --green-dim: rgba(63,185,80,0.12);
+  --blue: #58a6ff;
+  --purple: #bc8cff;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ───── HEADER ───── */
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+.logo span { color: var(--red); }
+
+.run-label {
+  background: rgba(88,166,255,0.1);
+  border: 1px solid rgba(88,166,255,0.3);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.drift-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drift-score-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.drift-score-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--red);
+}
+
+.drift-score-bar {
+  width: 140px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.drift-score-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--green) 0%, var(--yellow) 50%, var(--red) 85%);
+  transition: width 1s ease;
+}
+
+.header-stats {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.stat {
+  text-align: center;
+}
+.stat-num {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+}
+.stat-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.stat-num.red { color: var(--red); }
+.stat-num.yellow { color: var(--yellow); }
+.stat-num.green { color: var(--green); }
+
+/* ───── MAIN LAYOUT ───── */
+.main {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ───── LEFT PANEL — TIMELINE ───── */
+.timeline-panel {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.step-card {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+}
+
+.step-card:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.step-card.active {
+  background: rgba(88,166,255,0.07);
+  border-left: 3px solid var(--blue);
+}
+
+.step-card.drift-high {
+  border-left: 3px solid var(--red);
+}
+
+.step-card.drift-medium {
+  border-left: 3px solid var(--yellow);
+}
+
+.step-card.drift-none {
+  border-left: 3px solid transparent;
+}
+
+.step-card.active.drift-high {
+  background: rgba(248,81,73,0.08);
+  border-left: 3px solid var(--red);
+}
+
+.step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.step-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--border);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.step-type-badge {
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.step-type-badge.tool { background: rgba(63,185,80,0.15); color: var(--green); }
+.step-type-badge.synthesis { background: rgba(188,140,255,0.15); color: var(--purple); }
+.step-type-badge.reasoning { background: rgba(88,166,255,0.15); color: var(--blue); }
+
+.step-tool-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--blue);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.step-preview {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.drift-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.drift-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.drift-dot.high { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.drift-dot.medium { background: var(--yellow); }
+.drift-dot.none { background: var(--green); }
+
+.drift-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.drift-tag.high { color: var(--red); }
+.drift-tag.medium { color: var(--yellow); }
+.drift-tag.none { color: var(--green); }
+
+.contradiction-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* ───── RIGHT PANEL — DETAIL ───── */
+.detail-panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  gap: 12px;
+  padding: 40px;
+}
+
+.detail-placeholder .icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.detail-placeholder p {
+  font-size: 13px;
+  text-align: center;
+  max-width: 240px;
+  line-height: 1.5;
+}
+
+.detail-content {
+  padding: 20px 24px;
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-content.visible {
+  display: flex;
+}
+
+.detail-step-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-step-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.detail-step-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.meta-tag {
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* TOOL OUTPUT BOX */
+.output-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.output-box-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.output-box-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.output-box.synthesis-box .output-box-label::before {
+  background: var(--purple);
+}
+
+.output-box-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* QUERY TAG */
+.query-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(88,166,255,0.08);
+  border: 1px solid rgba(88,166,255,0.2);
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: var(--blue);
+  margin-bottom: 10px;
+  display: inline-block;
+}
+
+/* CONTRADICTION BLOCKS */
+.contradictions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contradictions-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--red);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contradictions-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(248,81,73,0.3);
+}
+
+.contradiction-card {
+  background: var(--red-dim);
+  border: 1px solid rgba(248,81,73,0.25);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.contradiction-card.medium {
+  background: var(--yellow-dim);
+  border-color: rgba(210,153,34,0.25);
+}
+
+.contradiction-header {
+  padding: 10px 14px;
+  background: rgba(248,81,73,0.1);
+  border-bottom: 1px solid rgba(248,81,73,0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.contradiction-card.medium .contradiction-header {
+  background: rgba(210,153,34,0.1);
+  border-color: rgba(210,153,34,0.15);
+}
+
+.severity-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+.severity-badge.high { background: rgba(248,81,73,0.3); color: var(--red); }
+.severity-badge.medium { background: rgba(210,153,34,0.25); color: var(--yellow); }
+
+.step-ref {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.contradiction-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contrast-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.contrast-cell {
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.contrast-cell-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.evidence-label { color: var(--green); }
+.claim-label { color: var(--red); }
+
+.evidence-label::before { content: '✓'; }
+.claim-label::before { content: '✗'; }
+
+.contrast-cell-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.contrast-cell-text em {
+  font-style: normal;
+  background: rgba(248,81,73,0.2);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.contrast-cell-text.evidence em {
+  background: rgba(63,185,80,0.2);
+}
+
+.contradiction-explain {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  font-style: italic;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* CONSISTENT STEP VIEW */
+.consistent-notice {
+  background: var(--green-dim);
+  border: 1px solid rgba(63,185,80,0.25);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--green);
+}
+
+/* SYNTHESIS HIGHLIGHT (markup the problematic phrases) */
+.synthesis-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.synthesis-text .flagged {
+  background: rgba(248,81,73,0.2);
+  border-bottom: 2px solid var(--red);
+  border-radius: 2px;
+  cursor: pointer;
+  padding: 0 2px;
+  position: relative;
+}
+
+.synthesis-text .flagged-medium {
+  background: rgba(210,153,34,0.2);
+  border-bottom: 2px solid var(--yellow);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* UPLOAD ZONE */
+.upload-section {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.upload-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.05); border-color: var(--text-dim); }
+.btn.primary { background: var(--blue); color: #000; font-weight: 600; border-color: var(--blue); }
+.btn.primary:hover { background: #79b8ff; }
+
+input[type="file"] { display: none; }
+
+.upload-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* SCROLLBARS */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* RESPONSIVE */
+@media (max-width: 700px) {
+  .main { grid-template-columns: 1fr; }
+  .detail-panel { display: none; }
+  .header-stats { display: none; }
+  .drift-score-bar { width: 80px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo">Agent<span>Drift</span></div>
+    <div class="run-label" id="runLabel">Loading...</div>
+  </div>
+
+  <div class="drift-badge">
+    <div>
+      <div class="drift-score-label">Drift Score</div>
+      <div class="drift-score-value" id="driftScore">—</div>
+    </div>
+    <div>
+      <div class="drift-score-bar">
+        <div class="drift-score-fill" id="driftFill" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="header-stats">
+    <div class="stat">
+      <div class="stat-num" id="statSteps">—</div>
+      <div class="stat-label">Steps</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num red" id="statHigh">—</div>
+      <div class="stat-label">High</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num yellow" id="statMedium">—</div>
+      <div class="stat-label">Medium</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num green" id="statClean">—</div>
+      <div class="stat-label">Clean</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ MAIN ═══════════════════════════════ -->
+<div class="main">
+
+  <!-- LEFT: TIMELINE -->
+  <div class="timeline-panel">
+    <div class="panel-header">Agent Run — Step Timeline</div>
+    <div id="timeline"></div>
+  </div>
+
+  <!-- RIGHT: DETAIL -->
+  <div class="detail-panel">
+    <div class="panel-header">Step Detail &amp; Contradiction Analysis</div>
+
+    <div class="detail-placeholder" id="detailPlaceholder">
+      <div class="icon">🔍</div>
+      <p>Click a step in the timeline to see the full tool output and contradiction analysis.</p>
+      <p style="font-size:11px; color: var(--text-dim)">Red steps contain detected reasoning drift.</p>
+    </div>
+
+    <div class="detail-content" id="detailContent"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ UPLOAD BAR ═══════════════════════════════ -->
+<div class="upload-section">
+  <div class="upload-label">Agent Log</div>
+  <button class="btn primary" onclick="document.getElementById('fileInput').click()">Load JSON Log</button>
+  <input type="file" id="fileInput" accept=".json" onchange="loadFile(event)">
+  <button class="btn" onclick="loadDemo()">← Reload Demo</button>
+  <div class="upload-hint">Format: array of step objects — see README for schema</div>
+</div>
+
+<!-- ═══════════════════════════════ SCRIPT ═══════════════════════════════ -->
+<script>
+// ── DEMO DATA ──────────────────────────────────────────────────────────────
+// Scenario: AI market research agent for "FleetAI" startup
+// Tool calls find consistently bad news. Final synthesis writes an optimistic report.
+// AgentDrift catches the drift at step 6.
+
+const DEMO = {
+  runId: "RUN-2026-06-26-0231",
+  agentName: "MarketResearchAgent v2.1",
+  task: "Evaluate market entry opportunity for FleetAI (AI-powered fleet management)",
+  steps: [
+    {
+      id: 1,
+      type: "tool_call",
+      tool: "web_search",
+      query: "AI fleet management market size growth CAGR 2026",
+      result: "AI fleet management market valued at $2.1B in 2026, revised CAGR 3.2% — significantly below original analyst estimates of $8B and 22% growth. Gartner cited 'enterprise hesitancy and integration complexity' as primary growth drag. Three major players reported revenue misses in Q1 2026.",
+      agentNote: "Found market size data. Smaller than initial projections.",
+      drift: "none"
+    },
+    {
+      id: 2,
+      type: "tool_call",
+      tool: "competitor_search",
+      query: "FleetAI direct competitors funded startups AI fleet 2025 2026",
+      result: "8 direct competitors identified. Apex Fleet (raised $340M Series C, Q4 2025), RouteAI ($180M Series B, Q1 2026), LogiBot ($95M Series B). Combined funding: $840M in last 18 months. All three entered enterprise contracts ahead of FleetAI's projected timeline. No clear differentiation gap identified.",
+      agentNote: "Heavy competition. All major players well-capitalized.",
+      drift: "none"
+    },
+    {
+      id: 3,
+      type: "tool_call",
+      tool: "survey_analysis",
+      query: "fleet operator AI adoption sentiment barriers 2026",
+      result: "IDC survey n=2,400 fleet operators (March 2026): 67% cite AI integration complexity as primary adoption barrier. 31% have already rolled back AI pilots, citing 'unreliable outputs and trust issues'. Only 9% have deployed AI to their full fleet. 58% say they would require at least 18 months of pilot testing before full commitment.",
+      agentNote: "Customer adoption significantly behind projections. Rollback rate concerning.",
+      drift: "none"
+    },
+    {
+      id: 4,
+      type: "tool_call",
+      tool: "regulatory_lookup",
+      query: "EU AI Act autonomous fleet vehicles enforcement 2026",
+      result: "EU AI Act enforcement: Q3 2026. Autonomous fleet routing decisions classified as 'high-risk AI systems'. Non-compliance penalties up to 6% of annual global revenue. US NHTSA published draft framework in April 2026 proposing similar classification. Compliance certification estimated 9–14 months from audit to approval. UK releasing guidance July 2026.",
+      agentNote: "Major regulatory headwind. Q3 enforcement start is aggressive timeline.",
+      drift: "none"
+    },
+    {
+      id: 5,
+      type: "tool_call",
+      tool: "technical_analysis",
+      query: "AI perception accuracy edge cases autonomous vehicles 2026",
+      result: "State-of-the-art perception models achieve 94.3% overall accuracy. Edge case performance (adverse weather, construction zones, pedestrian ambiguity): 78.2% — below the 95.0% threshold required for full autonomy clearance under draft NHTSA standards. Average time-to-failure in edge-case stress tests: 4.2 minutes. Improvement rate: 1.8 percentage points per 6-month cycle.",
+      agentNote: "Core technology solid but not at full-autonomy threshold yet. 18-24 months to close gap.",
+      drift: "none"
+    },
+    {
+      id: 6,
+      type: "synthesis",
+      tool: null,
+      query: null,
+      result: null,
+      agentOutput: "EXECUTIVE SUMMARY — FleetAI Market Entry Analysis\n\nFleetAI is entering a massive, rapidly-growing market with strong tailwinds and accelerating customer adoption. The technology is mature and ready for enterprise deployment at scale. The competitive landscape reflects healthy market validation. Regulatory developments present manageable compliance milestones. We recommend aggressive market entry in Q3 2026 with premium pricing and a direct enterprise sales motion.\n\nKey findings:\n• Market opportunity: Significant and expanding\n• Technology readiness: Production-ready\n• Customer sentiment: Positive and accelerating adoption\n• Competitive position: Clear differentiation opportunity\n• Regulatory outlook: Supportive compliance framework\n\nOverall investment outlook: HIGHLY OPTIMISTIC. Recommend immediate Series A funding at $40M.",
+      agentNote: "Synthesis complete.",
+      drift: "HIGH",
+      contradictions: [
+        {
+          claim: "massive, rapidly-growing market with strong tailwinds",
+          severity: "HIGH",
+          evidenceStep: 1,
+          evidenceText: "Market $2.1B, CAGR only 3.2% (revised down from $8B estimate). Three major players missed revenue targets in Q1.",
+          claimText: "massive, rapidly-growing market with strong tailwinds",
+          explanation: "Agent asserts rapid growth; Step 1 found the market was revised DOWN from $8B to $2.1B with CAGR of only 3.2%."
+        },
+        {
+          claim: "accelerating customer adoption",
+          severity: "HIGH",
+          evidenceStep: 3,
+          evidenceText: "67% cite AI complexity as barrier. 31% have ROLLED BACK AI pilots. Only 9% at full fleet deployment.",
+          claimText: "accelerating customer adoption",
+          explanation: "Step 3 found 31% of operators rolled back AI pilots and 67% resist adoption. The agent concluded the opposite."
+        },
+        {
+          claim: "Regulatory outlook: Supportive compliance framework",
+          severity: "HIGH",
+          evidenceStep: 4,
+          evidenceText: "EU AI Act enforcement Q3 2026. Penalties up to 6% global revenue. US NHTSA draft framework equally restrictive. Certification: 9–14 months.",
+          claimText: "Regulatory developments present manageable compliance milestones",
+          explanation: "Q3 2026 enforcement start means FleetAI would launch directly into a high-penalty regulatory environment — not a 'manageable milestone.'"
+        },
+        {
+          claim: "Technology readiness: Production-ready",
+          severity: "MEDIUM",
+          evidenceStep: 5,
+          evidenceText: "Edge case accuracy 78.2% — below 95% threshold required by draft NHTSA standards. 18–24 months to close gap.",
+          claimText: "technology is mature and ready for enterprise deployment at scale",
+          explanation: "Edge case accuracy is below the regulatory threshold for full autonomy. Agent's 'production-ready' claim contradicts the 18-24 month improvement timeline found in Step 5."
+        }
+      ]
+    }
+  ]
+};
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let currentData = null;
+let selectedStep = null;
+
+// ── LOAD & RENDER ──────────────────────────────────────────────────────────
+function loadDemo() {
+  loadData(DEMO);
+}
+
+function loadFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      // Accept both {steps:[]} format and plain [] format
+      if (Array.isArray(data)) {
+        loadData({ runId: file.name, agentName: "Custom Agent", task: "Custom run", steps: data });
+      } else {
+        loadData(data);
+      }
+    } catch(err) {
+      alert('Invalid JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function loadData(data) {
+  currentData = data;
+  selectedStep = null;
+
+  // Compute stats
+  const total = data.steps.length;
+  const high = data.steps.filter(s => s.drift === 'HIGH').length;
+  const medium = data.steps.filter(s => s.drift === 'MEDIUM').length;
+  const clean = data.steps.filter(s => s.drift === 'none').length;
+
+  // Drift score: weighted sum of contradiction severities
+  let driftScore = 0;
+  data.steps.forEach(s => {
+    if (s.drift === 'HIGH') driftScore += 28;
+    else if (s.drift === 'MEDIUM') driftScore += 10;
+  });
+  driftScore = Math.min(100, Math.round(driftScore));
+
+  // Update header
+  document.getElementById('runLabel').textContent = data.agentName + ' · ' + data.runId;
+  document.getElementById('driftScore').textContent = driftScore;
+  document.getElementById('driftFill').style.width = driftScore + '%';
+  document.getElementById('statSteps').textContent = total;
+  document.getElementById('statHigh').textContent = high;
+  document.getElementById('statMedium').textContent = medium;
+  document.getElementById('statClean').textContent = clean;
+
+  // Build timeline
+  const timeline = document.getElementById('timeline');
+  timeline.innerHTML = '';
+
+  data.steps.forEach((step, idx) => {
+    const card = document.createElement('div');
+    card.className = `step-card drift-${step.drift === 'HIGH' ? 'high' : step.drift === 'MEDIUM' ? 'medium' : 'none'}`;
+    card.id = `step-card-${step.id}`;
+
+    const typeLabel = step.type === 'synthesis' ? 'synthesis' : 'tool_call';
+    const preview = step.type === 'synthesis'
+      ? (step.agentOutput || '').substring(0, 120)
+      : (step.result || '').substring(0, 120);
+
+    const contCount = (step.contradictions || []).length;
+
+    card.innerHTML = `
+      <div class="step-top">
+        <span class="step-num">STEP ${step.id}</span>
+        <span class="step-type-badge ${typeLabel}">${typeLabel === 'synthesis' ? '⚡ synthesis' : '⚙ tool_call'}</span>
+      </div>
+      <div class="step-tool-name">${step.tool || 'agent_synthesis'}</div>
+      <div class="step-preview">${escHtml(preview)}${preview.length >= 120 ? '…' : ''}</div>
+      <div class="drift-indicator">
+        <div class="drift-dot ${step.drift === 'HIGH' ? 'high' : step.drift === 'MEDIUM' ? 'medium' : 'none'}"></div>
+        <div class="drift-tag ${step.drift === 'HIGH' ? 'high' : step.drift === 'MEDIUM' ? 'medium' : 'none'}">
+          ${step.drift === 'HIGH' ? 'HIGH DRIFT' : step.drift === 'MEDIUM' ? 'MEDIUM DRIFT' : 'CONSISTENT'}
+        </div>
+        ${contCount > 0 ? `<div class="contradiction-count">${contCount} contradiction${contCount > 1 ? 's' : ''}</div>` : ''}
+      </div>
+    `;
+
+    card.addEventListener('click', () => selectStep(step.id));
+    timeline.appendChild(card);
+  });
+
+  // Auto-select first step with drift
+  const firstDrift = data.steps.find(s => s.drift !== 'none');
+  if (firstDrift) {
+    // Small delay for effect
+    setTimeout(() => selectStep(firstDrift.id), 80);
+  }
+}
+
+function selectStep(stepId) {
+  const step = currentData.steps.find(s => s.id === stepId);
+  if (!step) return;
+
+  selectedStep = stepId;
+
+  // Update card selection
+  document.querySelectorAll('.step-card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById(`step-card-${stepId}`);
+  if (card) {
+    card.classList.add('active');
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  // Hide placeholder, show detail
+  document.getElementById('detailPlaceholder').style.display = 'none';
+  const dc = document.getElementById('detailContent');
+  dc.innerHTML = '';
+  dc.className = 'detail-content visible';
+
+  renderDetail(step, dc);
+}
+
+function renderDetail(step, container) {
+  // ── STEP HEADER
+  const headerDiv = document.createElement('div');
+  headerDiv.className = 'detail-step-header';
+  headerDiv.innerHTML = `
+    <div>
+      <div class="detail-step-title">
+        Step ${step.id} — ${step.tool || 'agent_synthesis'}
+      </div>
+      <div class="detail-step-meta">
+        <span class="meta-tag">${step.type}</span>
+        ${step.query ? `<span class="meta-tag">${escHtml(step.query.substring(0, 50))}${step.query.length>50?'…':''}</span>` : ''}
+        <span class="meta-tag drift-${step.drift === 'HIGH' ? 'high' : step.drift === 'MEDIUM' ? 'medium' : 'none'}" style="${step.drift === 'HIGH' ? 'color:var(--red);border-color:rgba(248,81,73,0.4)' : step.drift === 'MEDIUM' ? 'color:var(--yellow);border-color:rgba(210,153,34,0.4)' : 'color:var(--green);border-color:rgba(63,185,80,0.4)'}">${step.drift === 'none' ? '✓ CONSISTENT' : step.drift + ' DRIFT'}</span>
+      </div>
+    </div>
+  `;
+  container.appendChild(headerDiv);
+
+  // ── TOOL OUTPUT / AGENT OUTPUT
+  const outputBox = document.createElement('div');
+
+  if (step.type === 'synthesis') {
+    outputBox.className = 'output-box synthesis-box';
+
+    // If there are contradictions, highlight them in the text
+    let htmlOutput = escHtml(step.agentOutput || '');
+    if (step.contradictions) {
+      step.contradictions.forEach(c => {
+        const phrase = escHtml(c.claim);
+        htmlOutput = htmlOutput.replace(
+          phrase,
+          `<span class="flagged ${c.severity === 'MEDIUM' ? 'flagged-medium' : ''}" title="${escHtml(c.explanation)}">${phrase}</span>`
+        );
+      });
+    }
+
+    outputBox.innerHTML = `
+      <div class="output-box-label">Agent Final Output (Synthesis)</div>
+      <div class="synthesis-text">${htmlOutput.replace(/\n/g, '<br>')}</div>
+    `;
+  } else {
+    outputBox.className = 'output-box';
+    outputBox.innerHTML = `
+      <div class="output-box-label">Tool Output — ${escHtml(step.tool || '')}</div>
+      ${step.query ? `<div class="query-tag">↳ ${escHtml(step.query)}</div>` : ''}
+      <div class="output-box-content">${escHtml(step.result || '')}</div>
+    `;
+  }
+  container.appendChild(outputBox);
+
+  // ── CONTRADICTIONS
+  if (step.drift === 'none') {
+    const notice = document.createElement('div');
+    notice.className = 'consistent-notice';
+    notice.innerHTML = `<span>✓</span> <span>No reasoning drift detected. Agent's conclusions are consistent with the evidence gathered in this step.</span>`;
+    container.appendChild(notice);
+  } else if (step.contradictions && step.contradictions.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'contradictions-section';
+
+    const label = document.createElement('div');
+    label.className = 'contradictions-label';
+    label.textContent = `${step.contradictions.length} Contradiction${step.contradictions.length > 1 ? 's' : ''} Detected`;
+    section.appendChild(label);
+
+    step.contradictions.forEach(c => {
+      const card = document.createElement('div');
+      card.className = `contradiction-card ${c.severity === 'MEDIUM' ? 'medium' : ''}`;
+
+      const evidenceStep = currentData.steps.find(s => s.id === c.evidenceStep);
+      const evidenceTool = evidenceStep ? (evidenceStep.tool || 'agent') : 'step ' + c.evidenceStep;
+
+      card.innerHTML = `
+        <div class="contradiction-header">
+          <span class="severity-badge ${c.severity.toLowerCase()}">${c.severity}</span>
+          <span class="step-ref">Contradicts Step ${c.evidenceStep} · ${escHtml(evidenceTool)}</span>
+        </div>
+        <div class="contradiction-body">
+          <div class="contrast-row">
+            <div class="contrast-cell">
+              <div class="contrast-cell-label evidence-label">Step ${c.evidenceStep} found</div>
+              <div class="contrast-cell-text evidence">${escHtml(c.evidenceText)}</div>
+            </div>
+            <div class="contrast-cell">
+              <div class="contrast-cell-label claim-label">Agent concluded</div>
+              <div class="contrast-cell-text">"<em>${escHtml(c.claimText)}</em>"</div>
+            </div>
+          </div>
+          <div class="contradiction-explain">${escHtml(c.explanation)}</div>
+        </div>
+      `;
+      section.appendChild(card);
+    });
+
+    container.appendChild(section);
+  }
+
+  // ── AGENT'S OWN NOTE (if present and not synthesis)
+  if (step.agentNote && step.type !== 'synthesis') {
+    const noteBox = document.createElement('div');
+    noteBox.className = 'output-box';
+    noteBox.innerHTML = `
+      <div class="output-box-label" style="--before-bg:var(--purple)">Agent's Internal Note</div>
+      <div class="output-box-content" style="color:var(--text-dim); font-style:italic">"${escHtml(step.agentNote)}"</div>
+    `;
+    container.appendChild(noteBox);
+  }
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+loadDemo();
+</script>
+
+</body>
+</html>
