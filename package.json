@@ -1,0 +1,20 @@
+{
+  "name": "agent-drift",
+  "version": "1.0.0",
+  "description": "Detects when an AI agent's final conclusions contradict the evidence it gathered in its own intermediate steps",
+  "main": "dashboard/index.html",
+  "scripts": {
+    "start": "open dashboard/index.html"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "reasoning",
+    "trust",
+    "observability",
+    "multi-agent",
+    "contradiction-detection"
+  ],
+  "author": "Harel Asaf",
+  "license": "MIT"
+}
