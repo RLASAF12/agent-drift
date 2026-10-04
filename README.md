@@ -1,3 +1,5 @@
+> **Archived.** This repo moved to [RLASAF12/agent-guardrails](https://github.com/RLASAF12/agent-guardrails/tree/main/agent-drift) (folder `agent-drift/`, full history preserved). Archived 2026-10-04.
+
 # AgentDrift
 
 **Detects when an AI agent's final conclusions contradict the evidence it gathered in its own intermediate steps.**
